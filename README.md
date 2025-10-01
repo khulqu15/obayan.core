@@ -1,8 +1,19 @@
 # Obayan.Core Server
 
 > Backend server & API untuk **Obayan** — platform pesantren modern terintegrasi (SIAKAD, absensi, keuangan, web, modul operasional).
-
 > Situs utama: [https://obayan.id](https://obayan.id) ([obayan.id](https://obayan.id/))
+
+---
+
+<!-- Logo -->
+
+<p align="center">
+  <img src="https://obayan.id/assets/images/hero.png" alt="Obayan dashboard preview" width="800"/>
+</p>
+
+<p align="center">
+  <a href="https://obayan.id"><strong>Visit obayan.id</strong></a>
+</p>
 
 ---
 
@@ -20,6 +31,26 @@
 
 ---
 
+## Gambar & Screenshot (dari https://obayan.id)
+
+Berikut beberapa gambar/screenshot resmi yang dipakai sebagai ilustrasi fitur. Gambar diambil dari halaman publik Obayan (home page). Jika kamu ingin menggunakan file-file sumber asli (SVG/PNG resolusi penuh), sebaiknya minta akses brand assets resmi dari pemilik situs atau gunakan file yang disediakan di repo `assets/` (jika tersedia).
+
+### Dashboard preview (hero)
+
+![Obayan Dashboard Preview](https://obayan.id/assets/images/hero.png)
+
+### ToriID — Absensi Device (contoh)
+
+> Jika kamu ingin menambahkan gambar device ToriID (perangkat absensi), tambahkan URL gambar di bawah (contoh):
+
+```
+![ToriID Device](https://obayan.id/assets/images/toriid.png)
+```
+
+(Periksa apakah file ada di server; jika tidak, mintalah brand assets resmi.)
+
+---
+
 ## Prasyarat
 
 - PHP ≥ 8.1
@@ -33,43 +64,24 @@
 ## Struktur Direktori (contoh)
 
 ```
-
 .
-
 ├── app/
-
 ├── bootstrap/
-
 ├── config/
-
 ├── database/
-
 │   ├── migrations/
-
 │   ├── seeders/
-
 │   └── factories/
-
 ├── public/
-
 ├── resources/
-
 │   ├── views/
-
 │   └── assets/
-
 ├── routes/
-
 │   ├── api.php
-
 │   └── web.php
-
 ├── src/ (opsional jika modul core / services terpisah)
-
 ├── storage/
-
 └── tests/
-
 ```
 
 ---
@@ -79,91 +91,59 @@
 1. Clone repo
 
    ```bash
-
    git clone https://github.com/your-org/obayan.core.git
-
    cd obayan.core
-
    ```
 2. Install dependencies
 
    ```bash
-
    composer install
-
    ```
 3. Setup file lingkungan
 
    ```bash
-
    cp .env.example .env
-
    ```
 
    Edit `.env` sesuai kebutuhan:
 
    ```env
-
    APP_NAME=ObayanCore
-
    APP_ENV=local
-
    APP_KEY=base64:...
-
    APP_DEBUG=true
-
    APP_URL=http://localhost:8000
 
-
    DB_CONNECTION=pgsql
-
    DB_HOST=127.0.0.1
-
    DB_PORT=5432
-
    DB_DATABASE=obayan_core
-
    DB_USERNAME=...
-
    DB_PASSWORD=...
 
-
    # Optional: konfigurasi queue, redis, mail, etc
-
    QUEUE_CONNECTION=database
-
    ```
 4. Generate key aplikasi
 
    ```bash
-
    php artisan key:generate
-
    ```
 5. Jalankan migrasi & seeder (opsional)
 
    ```bash
-
    php artisan migrate
-
    php artisan db:seed
-
    ```
-6. (Opsional) Swagger / dokumentasi API
-
-   Jika kamu menggunakan package dokumentasi, generate docs-nya:
+6. (Opsional) Swagger / dokumentasi APIJika kamu menggunakan package dokumentasi, generate docs-nya:
 
    ```bash
-
    php artisan l5-swagger:generate
-
    ```
 7. Jalankan server
 
    ```bash
-
    php artisan serve
-
    ```
 
 ---
@@ -173,17 +153,13 @@
 Proyek ini mendukung queue (jobs, email, notifikasi). Misalnya:
 
 ```bash
-
-phpartisanqueue:work--tries=3
-
+php artisan queue:work --tries=3
 ```
 
 Pastikan queue driver (database, redis, etc) sudah diset di `.env`:
 
 ```env
-
 QUEUE_CONNECTION=database
-
 ```
 
 ---
@@ -195,37 +171,23 @@ QUEUE_CONNECTION=database
 - Response format: JSON standar dengan struktur:
 
   ```json
-
   {
-
-    "status": "success"|"error",
-
+    "status": "success" | "error",
     "data": {...},
-
     "message": "..."
-
   }
-
   ```
 - Endpoints utama (contoh):
 
-  | Domain | Endpoint | Fungsi |
-
-  |---|---|---|
-
-  | `/api/v1/auth/login` | POST | login user |
-
-  | `/api/v1/users` | GET / POST / PUT / DELETE | manajemen user |
-
-  | `/api/v1/santri` | CRUD | data santri |
-
-  | `/api/v1/attendance` | GET / POST | list & input absensi |
-
-  | `/api/v1/izin` | CRUD | izin keluar / sakit |
-
-  | `/api/v1/news` | CRUD / List | berita & halaman web |
-
-  | `/api/v1/bills` | CRUD / list | tagihan santri |
+  | Domain                 | Endpoint                  | Fungsi               |
+  | ---------------------- | ------------------------- | -------------------- |
+  | `/api/v1/auth/login` | POST                      | login user           |
+  | `/api/v1/users`      | GET / POST / PUT / DELETE | manajemen user       |
+  | `/api/v1/santri`     | CRUD                      | data santri          |
+  | `/api/v1/attendance` | GET / POST                | list & input absensi |
+  | `/api/v1/izin`       | CRUD                      | izin keluar / sakit  |
+  | `/api/v1/news`       | CRUD / List               | berita & halaman web |
+  | `/api/v1/bills`      | CRUD / list               | tagihan santri       |
 
 Pastikan kamu buat dokumentasi (Swagger / Postman) agar frontend / mobile bisa integrasi lancar.
 
@@ -236,9 +198,7 @@ Pastikan kamu buat dokumentasi (Swagger / Postman) agar frontend / mobile bisa i
 Gunakan PHPUnit / Pest untuk testing unit / feature:
 
 ```bash
-
-phpartisantest
-
+php artisan test
 ```
 
 ---
@@ -249,43 +209,26 @@ phpartisantest
 - Aktifkan caching config / route / view:
 
   ```bash
-
   php artisan config:cache
-
   php artisan route:cache
-
   php artisan view:cache
+  ```
+- Setup supervisor / systemd untuk queue / schedule (cron).Contoh supervisor config (Ubuntu):
 
   ```
-- Setup supervisor / systemd untuk queue / schedule (cron).
-
-  Contoh supervisor config (Ubuntu):
-
-  ```
-
   [program:obayan-queue]
-
   process_name=%(program_name)s_%(process_num)02d
-
   command=php /path/to/artisan queue:work --sleep=3 --tries=3
-
   numprocs=1
-
   autostart=true
-
   autorestart=true
-
   stderr_logfile=/var/log/obayan/queue.err.log
-
   stdout_logfile=/var/log/obayan/queue.out.log
-
   ```
 - Setup cron untuk scheduler:
 
   ```cron
-
   * * * * * cd /path/to/project && php artisan schedule:run >> /dev/null 2>&1
-
   ```
 - Pastikan backup database rutin & konfigurasi SSL / HTTPS.
 
