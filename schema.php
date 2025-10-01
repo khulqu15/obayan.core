@@ -1,6 +1,20 @@
 <?php
-// Use this file to create separate migration files. Each class below should be saved
-// in its own migration file, following Laravel timestamp naming convention.
+/**
+ * schema.php
+ *
+ * Single-file Laravel migrations collection.
+ *
+ * NOTES:
+ * - Laravel typically expects one Migration class per file. This combined file will still
+ *   define classes, but you may prefer to split each class into its own file under
+ *   database/migrations/ following Laravel conventions.
+ * - This schema is Postgres-friendly (uses json columns and includes raw SQL for tsvector
+ *   triggers and materialized view). If you use MySQL, remove or adapt the DB::unprepared() parts.
+ * - The schema uses 'tenant_id' for multi-tenant support (shared DB, shared schema).
+ *
+ * Place this file in your repository and run `php artisan migrate` after ensuring the
+ * classes are discovered by Laravel (or split them into separate migration files).
+ */
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -9,7 +23,39 @@ use Illuminate\Support\Facades\DB;
 
 /*
 |--------------------------------------------------------------------------
-| 1) users
+| Tenants (multi-tenant core)
+|--------------------------------------------------------------------------
+*/
+class CreateTenantsTable extends Migration
+{
+    public function up()
+    {
+        Schema::create('tenants', function (Blueprint $table) {
+            $table->string('tenant_id', 64)->primary();
+            $table->string('name', 200);
+            $table->string('domain', 200)->nullable();
+            $table->string('subdomain', 100)->nullable();
+            $table->string('contact_name', 200)->nullable();
+            $table->string('contact_email', 254)->nullable();
+            $table->string('phone', 50)->nullable();
+            $table->json('meta')->nullable();
+            $table->bigInteger('created_at')->nullable();
+            $table->bigInteger('updated_at')->nullable();
+
+            $table->unique(['domain']);
+            $table->unique(['subdomain']);
+        });
+    }
+
+    public function down()
+    {
+        Schema::dropIfExists('tenants');
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Users & Auth
 |--------------------------------------------------------------------------
 */
 class CreateUsersTable extends Migration
@@ -17,7 +63,8 @@ class CreateUsersTable extends Migration
     public function up()
     {
         Schema::create('users', function (Blueprint $table) {
-            $table->string('uid', 64)->primary(); // keep firebase uid or custom
+            $table->string('uid', 64)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('email', 254)->unique()->nullable();
             $table->string('display_name', 200)->nullable();
             $table->text('password_hash')->nullable();
@@ -27,6 +74,8 @@ class CreateUsersTable extends Migration
             $table->json('metadata')->nullable();
             $table->bigInteger('created_at')->nullable();
             $table->bigInteger('updated_at')->nullable();
+
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -36,21 +85,19 @@ class CreateUsersTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 2) roles
-|--------------------------------------------------------------------------
-*/
 class CreateRolesTable extends Migration
 {
     public function up()
     {
         Schema::create('roles', function (Blueprint $table) {
             $table->string('role_id', 64)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('name', 100)->unique();
             $table->text('description')->nullable();
             $table->json('permissions')->nullable();
             $table->bigInteger('created_at')->nullable();
+
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -60,23 +107,20 @@ class CreateRolesTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 3) user_roles
-|--------------------------------------------------------------------------
-*/
 class CreateUserRolesTable extends Migration
 {
     public function up()
     {
         Schema::create('user_roles', function (Blueprint $table) {
             $table->bigIncrements('id');
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('uid', 64);
             $table->string('role_id', 64);
             $table->bigInteger('assigned_at')->nullable();
 
             $table->foreign('uid')->references('uid')->on('users')->onDelete('cascade');
             $table->foreign('role_id')->references('role_id')->on('roles')->onDelete('cascade');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -86,17 +130,13 @@ class CreateUserRolesTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 4) sessions (simple session/token store)
-|--------------------------------------------------------------------------
-*/
 class CreateSessionsTable extends Migration
 {
     public function up()
     {
         Schema::create('sessions', function (Blueprint $table) {
             $table->string('session_id', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('uid', 64)->nullable();
             $table->string('ip_addr', 45)->nullable();
             $table->text('user_agent')->nullable();
@@ -106,6 +146,7 @@ class CreateSessionsTable extends Migration
 
             $table->index('uid');
             $table->foreign('uid')->references('uid')->on('users')->onDelete('cascade');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -117,7 +158,7 @@ class CreateSessionsTable extends Migration
 
 /*
 |--------------------------------------------------------------------------
-| 5) santri (students)
+| Santri / Students & Classes
 |--------------------------------------------------------------------------
 */
 class CreateSantriTable extends Migration
@@ -126,15 +167,20 @@ class CreateSantriTable extends Migration
     {
         Schema::create('santri', function (Blueprint $table) {
             $table->string('santri_id', 64)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('name', 200);
             $table->string('nis', 50)->nullable();
-            $table->string('room', 50)->nullable();      // kamar
+            $table->string('room', 50)->nullable();
             $table->string('maskan', 50)->nullable();
             $table->string('phone', 50)->nullable();
             $table->json('parent_info')->nullable();
             $table->json('extra')->nullable();
             $table->bigInteger('created_at')->nullable();
             $table->bigInteger('updated_at')->nullable();
+
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
+            // Optionally enforce per-tenant uniqueness:
+            // $table->unique(['tenant_id', 'nis'], 'santri_tenant_nis_unique');
         });
     }
 
@@ -144,23 +190,21 @@ class CreateSantriTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 6) classes
-|--------------------------------------------------------------------------
-*/
 class CreateClassesTable extends Migration
 {
     public function up()
     {
         Schema::create('classes', function (Blueprint $table) {
             $table->string('class_id', 64)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('title', 200)->nullable();
             $table->string('level', 50)->nullable();
             $table->string('code', 50)->nullable();
             $table->string('color', 20)->nullable();
             $table->json('meta')->nullable();
             $table->bigInteger('created_at')->nullable();
+
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -170,17 +214,13 @@ class CreateClassesTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 7) class_members
-|--------------------------------------------------------------------------
-*/
 class CreateClassMembersTable extends Migration
 {
     public function up()
     {
         Schema::create('class_members', function (Blueprint $table) {
             $table->bigIncrements('id');
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('class_id', 64);
             $table->string('santri_id', 64);
             $table->bigInteger('joined_at')->nullable();
@@ -190,6 +230,7 @@ class CreateClassMembersTable extends Migration
             $table->index('santri_id');
             $table->foreign('class_id')->references('class_id')->on('classes')->onDelete('cascade');
             $table->foreign('santri_id')->references('santri_id')->on('santri')->onDelete('cascade');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -201,7 +242,7 @@ class CreateClassMembersTable extends Migration
 
 /*
 |--------------------------------------------------------------------------
-| 8) devices
+| Devices, RFID
 |--------------------------------------------------------------------------
 */
 class CreateDevicesTable extends Migration
@@ -210,10 +251,13 @@ class CreateDevicesTable extends Migration
     {
         Schema::create('devices', function (Blueprint $table) {
             $table->string('device_id', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('name', 200)->nullable();
             $table->string('location', 200)->nullable();
             $table->json('meta')->nullable();
             $table->bigInteger('last_seen')->nullable();
+
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -223,23 +267,20 @@ class CreateDevicesTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 9) rfid_tags
-|--------------------------------------------------------------------------
-*/
 class CreateRfidTagsTable extends Migration
 {
     public function up()
     {
         Schema::create('rfid_tags', function (Blueprint $table) {
             $table->string('uid', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('santri_id', 64)->nullable();
             $table->bigInteger('issued_at')->nullable();
             $table->bigInteger('revoked_at')->nullable();
             $table->json('meta')->nullable();
 
             $table->foreign('santri_id')->references('santri_id')->on('santri')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -251,7 +292,7 @@ class CreateRfidTagsTable extends Migration
 
 /*
 |--------------------------------------------------------------------------
-| 10) attendance_sessions
+| Attendance (sessions & records)
 |--------------------------------------------------------------------------
 */
 class CreateAttendanceSessionsTable extends Migration
@@ -260,6 +301,7 @@ class CreateAttendanceSessionsTable extends Migration
     {
         Schema::create('attendance_sessions', function (Blueprint $table) {
             $table->string('session_key', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('title', 200)->nullable();
             $table->bigInteger('started_at')->nullable();
             $table->bigInteger('ended_at')->nullable();
@@ -267,6 +309,7 @@ class CreateAttendanceSessionsTable extends Migration
             $table->json('meta')->nullable();
 
             $table->foreign('created_by')->references('uid')->on('users')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -276,17 +319,13 @@ class CreateAttendanceSessionsTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 11) attendance_records
-|--------------------------------------------------------------------------
-*/
 class CreateAttendanceRecordsTable extends Migration
 {
     public function up()
     {
         Schema::create('attendance_records', function (Blueprint $table) {
-            $table->string('id', 128)->primary(); // preserve firebase key if any
+            $table->string('id', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('session_key', 128)->nullable();
             $table->string('santri_id', 64)->nullable();
             $table->string('name', 200)->nullable();
@@ -306,6 +345,7 @@ class CreateAttendanceRecordsTable extends Migration
             $table->foreign('santri_id')->references('santri_id')->on('santri')->onDelete('set null');
             $table->foreign('device_id')->references('device_id')->on('devices')->onDelete('set null');
             $table->foreign('rfid_uid')->references('uid')->on('rfid_tags')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -317,7 +357,7 @@ class CreateAttendanceRecordsTable extends Migration
 
 /*
 |--------------------------------------------------------------------------
-| 12) agendas
+| Agendas, Announcements
 |--------------------------------------------------------------------------
 */
 class CreateAgendasTable extends Migration
@@ -326,6 +366,7 @@ class CreateAgendasTable extends Migration
     {
         Schema::create('agendas', function (Blueprint $table) {
             $table->string('agenda_id', 64)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('title', 300)->nullable();
             $table->text('description')->nullable();
             $table->bigInteger('start_at')->nullable();
@@ -341,6 +382,7 @@ class CreateAgendasTable extends Migration
             $table->json('meta')->nullable();
 
             $table->foreign('created_by')->references('uid')->on('users')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
             $table->index('start_at');
             $table->index('end_at');
         });
@@ -352,17 +394,13 @@ class CreateAgendasTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 13) announcements
-|--------------------------------------------------------------------------
-*/
 class CreateAnnouncementsTable extends Migration
 {
     public function up()
     {
         Schema::create('announcements', function (Blueprint $table) {
             $table->string('announcement_id', 64)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('title', 200)->nullable();
             $table->text('message')->nullable();
             $table->string('level', 50)->nullable();
@@ -377,6 +415,7 @@ class CreateAnnouncementsTable extends Migration
             $table->json('meta')->nullable();
 
             $table->foreign('created_by')->references('uid')->on('users')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -388,7 +427,7 @@ class CreateAnnouncementsTable extends Migration
 
 /*
 |--------------------------------------------------------------------------
-| 14) notifications (log)
+| Notifications & Media
 |--------------------------------------------------------------------------
 */
 class CreateNotificationsTable extends Migration
@@ -397,6 +436,7 @@ class CreateNotificationsTable extends Migration
     {
         Schema::create('notifications', function (Blueprint $table) {
             $table->bigIncrements('id');
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('target_uid', 64)->nullable();
             $table->string('type', 50)->nullable();
             $table->json('payload')->nullable();
@@ -405,6 +445,7 @@ class CreateNotificationsTable extends Migration
             $table->bigInteger('created_at')->nullable();
 
             $table->foreign('target_uid')->references('uid')->on('users')->onDelete('cascade');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -414,17 +455,13 @@ class CreateNotificationsTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 15) media (uploads)
-|--------------------------------------------------------------------------
-*/
 class CreateMediaTable extends Migration
 {
     public function up()
     {
         Schema::create('media', function (Blueprint $table) {
             $table->string('media_id', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('filename', 300)->nullable();
             $table->text('url')->nullable();
             $table->string('mime', 100)->nullable();
@@ -434,6 +471,7 @@ class CreateMediaTable extends Migration
             $table->json('meta')->nullable();
 
             $table->foreign('uploaded_by')->references('uid')->on('users')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
             $table->index('uploaded_by');
         });
     }
@@ -446,7 +484,7 @@ class CreateMediaTable extends Migration
 
 /*
 |--------------------------------------------------------------------------
-| 16) pages (web CMS)
+| Pages & News (CMS) - per-tenant uniqueness for slug
 |--------------------------------------------------------------------------
 */
 class CreatePagesTable extends Migration
@@ -455,7 +493,8 @@ class CreatePagesTable extends Migration
     {
         Schema::create('pages', function (Blueprint $table) {
             $table->string('page_id', 128)->primary();
-            $table->string('slug', 200)->unique();
+            $table->string('tenant_id', 64)->nullable()->index();
+            $table->string('slug', 200)->nullable();
             $table->string('title', 300)->nullable();
             $table->text('content_html')->nullable();
             $table->json('content_json')->nullable();
@@ -467,12 +506,14 @@ class CreatePagesTable extends Migration
             $table->bigInteger('updated_at')->nullable();
             $table->json('meta')->nullable();
 
+            $table->unique(['tenant_id', 'slug'], 'pages_tenant_slug_unique');
             $table->foreign('author_uid')->references('uid')->on('users')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
 
-        // Postgres tsvector trigger for pages (optional). Only when using Postgres.
+        // Postgres tsvector trigger for pages (optional)
         DB::unprepared("
-            CREATE FUNCTION pages_tsv_trigger() RETURNS trigger LANGUAGE plpgsql AS $$
+            CREATE FUNCTION IF NOT EXISTS pages_tsv_trigger() RETURNS trigger LANGUAGE plpgsql AS $$
             begin
               new.tsv :=
                 setweight(to_tsvector('simple', coalesce(new.title,'')), 'A') ||
@@ -484,51 +525,48 @@ class CreatePagesTable extends Migration
         ");
         DB::unprepared("
             ALTER TABLE pages ADD COLUMN IF NOT EXISTS tsv tsvector;
-            CREATE TRIGGER trg_pages_tsv BEFORE INSERT OR UPDATE ON pages
+            CREATE TRIGGER IF NOT EXISTS trg_pages_tsv BEFORE INSERT OR UPDATE ON pages
             FOR EACH ROW EXECUTE FUNCTION pages_tsv_trigger();
         ");
     }
 
     public function down()
     {
-        // drop trigger and function if exist (Postgres)
         DB::unprepared("DROP TRIGGER IF EXISTS trg_pages_tsv ON pages;");
         DB::unprepared("DROP FUNCTION IF EXISTS pages_tsv_trigger();");
         Schema::dropIfExists('pages');
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 17) news
-|--------------------------------------------------------------------------
-*/
 class CreateNewsTable extends Migration
 {
     public function up()
     {
         Schema::create('news', function (Blueprint $table) {
             $table->string('news_id', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('title', 300)->nullable();
             $table->string('category', 100)->nullable();
             $table->string('cover_media_id', 128)->nullable();
             $table->text('content_html')->nullable();
             $table->json('content_json')->nullable();
             $table->text('excerpt')->nullable();
-            $table->string('slug', 200)->unique()->nullable();
+            $table->string('slug', 200)->nullable();
             $table->bigInteger('published_at')->nullable();
             $table->string('created_by', 64)->nullable();
             $table->bigInteger('created_at')->nullable();
             $table->bigInteger('updated_at')->nullable();
             $table->json('meta')->nullable();
 
+            $table->unique(['tenant_id', 'slug'], 'news_tenant_slug_unique');
             $table->foreign('cover_media_id')->references('media_id')->on('media')->onDelete('set null');
             $table->foreign('created_by')->references('uid')->on('users')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
 
         // Postgres tsvector trigger for news
         DB::unprepared("
-            CREATE FUNCTION news_tsv_trigger() RETURNS trigger LANGUAGE plpgsql AS $$
+            CREATE FUNCTION IF NOT EXISTS news_tsv_trigger() RETURNS trigger LANGUAGE plpgsql AS $$
             begin
               new.tsv :=
                 setweight(to_tsvector('simple', coalesce(new.title,'')), 'A') ||
@@ -540,7 +578,7 @@ class CreateNewsTable extends Migration
         ");
         DB::unprepared("
             ALTER TABLE news ADD COLUMN IF NOT EXISTS tsv tsvector;
-            CREATE TRIGGER trg_news_tsv BEFORE INSERT OR UPDATE ON news
+            CREATE TRIGGER IF NOT EXISTS trg_news_tsv BEFORE INSERT OR UPDATE ON news
             FOR EACH ROW EXECUTE FUNCTION news_tsv_trigger();
         ");
     }
@@ -555,7 +593,7 @@ class CreateNewsTable extends Migration
 
 /*
 |--------------------------------------------------------------------------
-| 18) bills & bill_items
+| Bills & Bill Items
 |--------------------------------------------------------------------------
 */
 class CreateBillsTable extends Migration
@@ -564,6 +602,7 @@ class CreateBillsTable extends Migration
     {
         Schema::create('bills', function (Blueprint $table) {
             $table->string('bill_id', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('santri_id', 64)->nullable();
             $table->string('period', 20)->nullable();
             $table->bigInteger('total')->nullable();
@@ -573,6 +612,7 @@ class CreateBillsTable extends Migration
             $table->bigInteger('due_date')->nullable();
 
             $table->foreign('santri_id')->references('santri_id')->on('santri')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
             $table->index(['santri_id', 'period']);
         });
     }
@@ -589,6 +629,7 @@ class CreateBillItemsTable extends Migration
     {
         Schema::create('bill_items', function (Blueprint $table) {
             $table->bigIncrements('id');
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('bill_id', 128)->nullable();
             $table->string('key_name', 100)->nullable();
             $table->string('title', 200)->nullable();
@@ -599,6 +640,7 @@ class CreateBillItemsTable extends Migration
             $table->json('meta')->nullable();
 
             $table->foreign('bill_id')->references('bill_id')->on('bills')->onDelete('cascade');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -610,7 +652,7 @@ class CreateBillItemsTable extends Migration
 
 /*
 |--------------------------------------------------------------------------
-| 19) faults
+| Faults, Izin, Kunjungan
 |--------------------------------------------------------------------------
 */
 class CreateFaultsTable extends Migration
@@ -619,6 +661,7 @@ class CreateFaultsTable extends Migration
     {
         Schema::create('faults', function (Blueprint $table) {
             $table->string('fault_id', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('santri_id', 64)->nullable();
             $table->string('pelapor_uid', 64)->nullable();
             $table->string('title', 300)->nullable();
@@ -633,6 +676,7 @@ class CreateFaultsTable extends Migration
 
             $table->foreign('santri_id')->references('santri_id')->on('santri')->onDelete('set null');
             $table->foreign('pelapor_uid')->references('uid')->on('users')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -642,17 +686,13 @@ class CreateFaultsTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 20) izin (permissions/leaves)
-|--------------------------------------------------------------------------
-*/
 class CreateIzinTable extends Migration
 {
     public function up()
     {
         Schema::create('izin', function (Blueprint $table) {
             $table->string('izin_id', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('santri_id', 64)->nullable();
             $table->string('requester_uid', 64)->nullable();
             $table->text('reason')->nullable();
@@ -667,6 +707,7 @@ class CreateIzinTable extends Migration
 
             $table->foreign('santri_id')->references('santri_id')->on('santri')->onDelete('set null');
             $table->foreign('requester_uid')->references('uid')->on('users')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -676,17 +717,13 @@ class CreateIzinTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 21) kunjungan (visits)
-|--------------------------------------------------------------------------
-*/
 class CreateKunjunganTable extends Migration
 {
     public function up()
     {
         Schema::create('kunjungan', function (Blueprint $table) {
             $table->string('visit_id', 128)->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('santri_id', 64)->nullable();
             $table->string('visitor_name', 200)->nullable();
             $table->string('relation', 100)->nullable();
@@ -697,6 +734,7 @@ class CreateKunjunganTable extends Migration
             $table->json('meta')->nullable();
 
             $table->foreign('santri_id')->references('santri_id')->on('santri')->onDelete('set null');
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -708,7 +746,7 @@ class CreateKunjunganTable extends Migration
 
 /*
 |--------------------------------------------------------------------------
-| 22) audit_logs
+| Audit logs & Settings
 |--------------------------------------------------------------------------
 */
 class CreateAuditLogsTable extends Migration
@@ -717,6 +755,7 @@ class CreateAuditLogsTable extends Migration
     {
         Schema::create('audit_logs', function (Blueprint $table) {
             $table->bigIncrements('id');
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->string('uid', 64)->nullable();
             $table->string('action', 200)->nullable();
             $table->string('entity_type', 100)->nullable();
@@ -725,6 +764,8 @@ class CreateAuditLogsTable extends Migration
             $table->bigInteger('created_at')->default(DB::raw('(EXTRACT(EPOCH FROM now()) * 1000)::BIGINT'));
             $table->index(['entity_type', 'entity_id']);
             $table->index('uid');
+
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -734,19 +775,17 @@ class CreateAuditLogsTable extends Migration
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 23) settings (key-value)
-|--------------------------------------------------------------------------
-*/
 class CreateSettingsTable extends Migration
 {
     public function up()
     {
         Schema::create('settings', function (Blueprint $table) {
             $table->text('key')->primary();
+            $table->string('tenant_id', 64)->nullable()->index();
             $table->json('value')->nullable();
             $table->bigInteger('updated_at')->nullable();
+
+            $table->foreign('tenant_id')->references('tenant_id')->on('tenants')->onDelete('set null');
         });
     }
 
@@ -758,10 +797,8 @@ class CreateSettingsTable extends Migration
 
 /*
 |--------------------------------------------------------------------------
-| Optional: materialized view / helper (no direct Schema builder)
+| Optional: materialized view for latest attendance (Postgres)
 |--------------------------------------------------------------------------
-| If you want the materialized view `mv_latest_attendance`, run a raw SQL
-| migration after attendance_records is created. Example below:
 */
 class CreateMaterializedViews extends Migration
 {
@@ -770,9 +807,9 @@ class CreateMaterializedViews extends Migration
         // Only for Postgres
         DB::unprepared("
             CREATE MATERIALIZED VIEW IF NOT EXISTS mv_latest_attendance AS
-            SELECT DISTINCT ON (ar.santri_id) ar.santri_id, ar.ts, ar.status, ar.session_key, ar.name
+            SELECT DISTINCT ON (ar.tenant_id, ar.santri_id) ar.tenant_id, ar.santri_id, ar.ts, ar.status, ar.session_key, ar.name
             FROM attendance_records ar
-            ORDER BY ar.santri_id, ar.ts DESC;
+            ORDER BY ar.tenant_id, ar.santri_id, ar.ts DESC;
         ");
     }
 
@@ -781,3 +818,33 @@ class CreateMaterializedViews extends Migration
         DB::unprepared("DROP MATERIALIZED VIEW IF EXISTS mv_latest_attendance;");
     }
 }
+
+/*
+|--------------------------------------------------------------------------
+| End of schema.php
+|--------------------------------------------------------------------------
+|
+| After running migrations:
+| - Implement Tenant identification (middleware) to set current tenant per request.
+| - Add Global Scope to tenant-aware Eloquent models so queries are automatically filtered.
+| - Ensure when creating records the model automatically sets tenant_id (via model boot or observers).
+|
+| Example (Model trait):
+| protected static function booted() {
+|     static::addGlobalScope(new TenantScope);
+|     static::creating(function ($model) {
+|         $tenant = app()->make('currentTenant');
+|         if ($tenant && empty($model->tenant_id)) {
+|             $model->tenant_id = $tenant->tenant_id;
+|         }
+|     });
+| }
+|
+| If you want, aku bisa:
+|  - Pecah file ini jadi banyak migration files sesuai konvensi Laravel.
+|  - Tambahkan example middleware `IdentifyTenant`, `TenantScope` class, dan Model trait.
+|  - Buat seeder contoh tenants & admin user.
+|
+| Pilih langkah berikutnya jika mau aku lanjutkan.
+|
+*/
